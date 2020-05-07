@@ -19,15 +19,6 @@ class Summary:
         self.counter = {}
         self.skeleton = {}
     
-        for s in self.SCENARIOS:
-            self.counter[s] = {}
-            self.counter[s]["total"] = {}
-            self.counter[s]["test_cases"] = {}
-
-        self.counter["timeout"]["total"] = 0
-        self.counter["total"]["success"] = 0
-        self.counter["total"]["failure"] = 0
-    
     def __str__(self):
         return str(self.counter)
     
