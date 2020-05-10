@@ -17,44 +17,81 @@ class Summary:
     )
     def __init__(self):
         self.counter = {}
-        self.skeleton = {}
+        self.record = {"index": None,
+                        "test_case": None,
+                        "outcome": None,
+                        "status_code": None,
+                        "exception": None,
+                        "time": None}
+        self.summary = {"total": {"success": 0, "failure": 0},
+                        "time": {"mean": None, "max": None, "min": None},
+                        "status_code": {"none": 0},
+                        "exception": {}}
+        self.records = []
+        self.index = 0
+
+        self.time_count = 0
+        self.time_total = 0
+        self.time_max = 0
+        self.time_min = 0
     
     def __str__(self):
         return str(self.counter)
-    
-    def count(self, test, response, exception):
-        if self.counter["test_cases"].get(test, True):
-            self.counter["test_cases"][test] = copy(self.skeleton)
 
-        for c in (self.counter["summary"], self.counter["test_cases"][test]):
-            if response is not None:
-                status_code = str(response.status_code)
-                self.count_status_code(c, status_code)
-            elif exception is not None:
-                self.count_exception(c, exception)
-            else:
-                raise Exception("Either 'response' or 'exception' needs to be not None")
+    def get_record(self):
+        return copy(self.record)
+
+    def get_index(self):
+        self.index += 1
+        return int(self.index)
     
-    def count_total(self, type, count_type):
-        self.counter[count_type]["total"][type] += 1
-    
-    def count_status_code(self, collector, status_code):
-        if str(status_code) == "200":
-            self.count_total("success")
-        else:
-            self.count_total("failure")
+    def get_summary(self):
+        return copy(self.summary)
+
+    def count(self, **kwargs):
+        r = self.get_record()
+        r["index"] = self.get_index()
+        r["test_case"] = kwargs.get("test_case")
+        r["outcome"] = kwargs.get("outcome")
+        r["status_code"] = kwargs.get("status_code")
+        r["exception"] = kwargs.get("exception")
+        r["time"] = kwargs.get("time")
         
-        if self.counter["summary"]["status_code"].get(str(status_code), True):
-            self.counter["summary"]["status_code"][str(status_code)] = 1
-        else:
-            self.counter["summary"]["status_code"][str(status_code)] += 1
+        self.records.append(r)
     
-    def count_exception(self, collector, exception):
-        self.count_total("failure")
-        if collector["status_code"].get(str(exception), True):
-            collector["status_code"][str(exception)] = 1
+    def _aggregate(self, record):
+        # total
+        self.summary["total"][record["outcome"]] += 1
+        # time
+        if record["time"] is not None:
+            self.time_count += 1
+            self.time_total += record["time"]
+            if record["time"] > self.time_max:
+                self.time_max = record["time"]
+            if record["time"] < self.time_min:
+                self.time_min = record["time"]
+        
+        # status_code
+        self.update_record(record, "status_code")
+        
+        # exception
+        self.update_record(record, "exception")
+    
+    def update_record(self, record, name):
+        if record[name] is not None:
+            if self.summary[name].get(record[name], True):
+                self.summary[name][record[name]] = 0
+            self.summary[name][record[name]] += 1
         else:
-            collector[count_type]["status_code"][str(exception)] += 1
+            self.summary[name]["none"] += 1
+
+    def aggregate(self):
+        for r in self.records:
+            self._aggregate(r)
+    
+    def count_time(self, counter, test, time):
+        pass
+
 
 
 class ApiTest:
@@ -71,15 +108,26 @@ class ApiTest:
     def __str__(self):
         return self.name
 
-    def record(self, test, response=None, exception=None):
-        self.counter.count(response, exception)
+    def record(self, **kwargs):
+        self.counter.count(**kwargs)
     
     def test_request(self, test, json_):
+        e = None
+        status_code = None
+        time_ = None
         try:
+            time_ = time.time()
             r = requests.post(url=URL, json=json_, timeout=self.timeout)
-            self.record(test, response=r)
+            status_code = str(r.status_code)
+            time_ = time.time() - time_
         except Exception as e:
-            self.record(test, exception=e)
+            pass
+        
+        outcome = "failure"
+        if status_code == "200":
+            outcome == "success"
+
+        self.record(test_case=test, outcome=outcome, exception=e, time=time_)
     
     @staticmethod
     def timer(f):
