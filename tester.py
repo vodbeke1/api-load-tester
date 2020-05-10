@@ -58,6 +58,7 @@ class Summary:
         r["time"] = kwargs.get("time")
         
         self.records.append(r)
+        self._aggregate(r)
     
     def _aggregate(self, record):
         # total
@@ -77,6 +78,10 @@ class Summary:
         # exception
         self.update_record(record, "exception")
     
+    def aggregate(self):
+        for r in self.records:
+            self._aggregate(r)
+    
     def update_record(self, record, name):
         if record[name] is not None:
             if self.summary[name].get(record[name], True):
@@ -85,10 +90,6 @@ class Summary:
         else:
             self.summary[name]["none"] += 1
 
-    def aggregate(self):
-        for r in self.records:
-            self._aggregate(r)
-    
     def count_time(self, counter, test, time):
         pass
 
