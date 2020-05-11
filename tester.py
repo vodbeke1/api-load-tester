@@ -46,6 +46,9 @@ class Summary:
         return int(self.index)
     
     def get_summary(self):
+        """
+        Return copy of summary dict
+        """
         return copy(self.summary)
 
     def count(self, **kwargs):
