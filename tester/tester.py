@@ -32,7 +32,6 @@ class Timer:
         return round(self.end_time-self.start_time, 2)
 
 
-
 class Summary:
     def __init__(self):
         self.counter = {}
