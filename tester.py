@@ -5,16 +5,33 @@ import json
 from threading import Thread
 from queue import Queue
 from copy import copy
+import yaml
+import sys
 
-TEST_CASE_PATH = "test_json/"
+TEST_CASE_PATH = "test_json_/"
 URL = "http://127.0.0.1/api"
 
+if os.path.exists("config.yaml"):
+    with open("config.yaml") as f:
+        config = yaml.load(f, Loader=yaml.FullLoader)
+    URL = config.get("url") or URL
+    TEST_CASE_PATH = config.get("test_case_path") or TEST_CASE_PATH
+
+
+class Timer:
+    def __enter__(self):
+        self.start_time = time.time()
+        return self
+    
+    def __exit__(self, type, value, traceback):
+        self.end_time = time.time()
+    
+    def time(self):
+        return self.end_time-self.start_time
+
+
+
 class Summary:
-    SCENARIOS = (
-        "status_code",
-        "timeout",
-        "total"
-    )
     def __init__(self):
         self.counter = {}
         self.record = {"index": None,
@@ -23,17 +40,19 @@ class Summary:
                         "status_code": None,
                         "exception": None,
                         "time": None}
-        self.summary = {"total": {"success": 0, "failure": 0},
-                        "time": {"mean": None, "max": None, "min": None},
+        self.time_count = 0
+        self.time_total = 0
+        self.time_max = float("-inf")
+        self.time_min = float("inf")
+
+        self._summary = {"total": {"success": 0, "failure": 0},
+                        "time": {"mean": None, "max": self.time_max, "min": self.time_min},
                         "status_code": {"none": 0},
-                        "exception": {}}
+                        "exception": {"none": 0}}
         self.records = []
         self.index = 0
 
-        self.time_count = 0
-        self.time_total = 0
-        self.time_max = 0
-        self.time_min = 0
+        
     
     def __str__(self):
         return str(self.counter)
@@ -44,12 +63,6 @@ class Summary:
     def get_index(self):
         self.index += 1
         return int(self.index)
-    
-    def get_summary(self):
-        """
-        Return copy of summary dict
-        """
-        return copy(self.summary)
 
     def count(self, **kwargs):
         r = self.get_record()
@@ -65,7 +78,7 @@ class Summary:
     
     def _aggregate(self, record):
         # total
-        self.summary["total"][record["outcome"]] += 1
+        self._summary["total"][record["outcome"]] += 1
         # time
         if record["time"] is not None:
             self.time_count += 1
@@ -87,11 +100,22 @@ class Summary:
     
     def update_record(self, record, name):
         if record[name] is not None:
-            if self.summary[name].get(record[name], True):
-                self.summary[name][record[name]] = 0
-            self.summary[name][record[name]] += 1
+            if self._summary[name].get(record[name]) is None:
+                self._summary[name][record[name]] = 0
+            self._summary[name][record[name]] += 1
         else:
-            self.summary[name]["none"] += 1
+            self._summary[name]["none"] += 1
+
+    def collect_summary(self):
+        self._summary["time"]["max"] = self.time_max
+        self._summary["time"]["min"] = self.time_min
+    
+    def summary(self):
+        """
+        Return copy of summary dict
+        """
+        self.collect_summary()
+        return self._summary
 
     def count_time(self, counter, test, time):
         pass
@@ -108,6 +132,8 @@ class ApiTest:
         self.test_time = None
         self.name = "test"
         self.test_count = test_count
+        self.c = 0
+        self._c = 0.1
 
     def __str__(self):
         return self.name
@@ -116,23 +142,29 @@ class ApiTest:
         self.counter.count(**kwargs)
     
     def test_request(self, test, json_):
-        e = None
+        exception = None
         status_code = None
         time_ = None
         try:
-            time_ = time.time()
-            r = requests.post(url=URL, json=json_, timeout=self.timeout)
-            status_code = str(r.status_code)
-            time_ = time.time() - time_
+            with Timer() as t:
+                r = requests.post(url=URL, json=json_, timeout=self.timeout)
+                status_code = str(r.status_code)
+            time_ = t.time()
         except Exception as e:
-            pass
+            exception = e
         
         outcome = "failure"
         if status_code == "200":
-            outcome == "success"
+            outcome = "success"
 
-        self.record(test_case=test, outcome=outcome, exception=e, time=time_)
-    
+        self.record(
+            test_case=test,
+            outcome=outcome,
+            status_code=status_code,
+            exception=exception,
+            time=time_
+            )
+
     @staticmethod
     def timer(f):
         def new_func(*args, **kwargs):
@@ -140,6 +172,27 @@ class ApiTest:
             f(*args, **kwargs)
             return time.time()-start_time
         return new_func
+    
+    def clear(self, space):
+        print(space*" ", end="\r")
+
+    def tracker(self):
+        self.c += 1
+        self.clear(100)
+        if self.c != self.test_count:
+            print(f"{self.c}/{self.test_count}"+(self.c % 5) * ".", end="\r")
+        else:
+            print(f"{self.c}/{self.test_count}")
+
+    @staticmethod
+    def end_msg(f):
+        def new_func(*args, **kwargs):
+            f(*args, **kwargs)
+            print("Testing complete")
+        return new_func
+
+    def summary(self):
+        print(self.counter.summary())
 
 
 class SingleThreadTest(ApiTest):
@@ -150,11 +203,13 @@ class SingleThreadTest(ApiTest):
     @ApiTest.timer
     def _run(self):
         for i in range(self.test_count):
+            self.tracker()
             test = (i % self.case_count) + 1
             with open(f"{self.path}test_{test}.json") as f:
                 json_ = json.load(f)
             self.test_request(test=test, json_=json_)
-    
+
+    @ApiTest.end_msg
     def run(self):
         self.test_time = self._run()
 
@@ -178,6 +233,7 @@ class MultiThreadTest(ApiTest):
     def worker(self):
         while True:
             item = self.q.get()
+            self.tracker()
             self.test_request(test=item["test"], json_=item["json_"])
             self.q.task_done()
 
@@ -189,6 +245,14 @@ class MultiThreadTest(ApiTest):
             t.start()
         self.q.join()
 
+    @ApiTest.end_msg
     def run(self):
         self.prep_queue()
         self.test_time = self._run()
+
+if __name__ == "__main__":
+    single_thread_test = SingleThreadTest(test_count=2, name="my_test")
+    #single_thread_test = MultiThreadTest(test_count=2000, threads=10, name="my_test")
+    single_thread_test.run()
+    print(single_thread_test.counter.time_max)
+    single_thread_test.summary()
