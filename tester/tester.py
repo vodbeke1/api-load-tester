@@ -8,7 +8,7 @@ from copy import copy
 import yaml
 import sys
 
-from formatting import FormatInfo
+from .formatting import FormatInfo
 
 TEST_CASE_PATH = "test_json_/"
 URL = "http://127.0.0.1/api"
@@ -36,11 +36,11 @@ class Summary:
     def __init__(self):
         self.counter = {}
         self.single_record = {"index": None,
-                        "test_case": None,
-                        "outcome": None,
-                        "status_code": None,
-                        "exception": None,
-                        "time": None}
+                              "test_case": None,
+                              "outcome": None,
+                              "status_code": None,
+                              "exception": None,
+                              "time": None}
         self.time_count = 0
         self.time_total = 0
         self.time_max = float("-inf")
@@ -87,6 +87,8 @@ class Summary:
             if record["time"] < self.time_min:
                 self.time_min = record["time"]
         
+        # TODO: Fix average time per request for threaded test
+
         # status_code
         self.update_record(record, "status_code")
         
@@ -269,10 +271,3 @@ class MultiThreadTest(ApiTest):
             _ = self._run()
         self.test_time = t.time()
         self.record(**self.__dict__)
-
-if __name__ == "__main__":
-    single_thread_test = SingleThreadTest(test_count=50, name="my_test")
-    #single_thread_test = MultiThreadTest(test_count=100, threads=10, name="my_test")
-    single_thread_test.run()
-    print(single_thread_test.counter.time_max)
-    single_thread_test.summary()
