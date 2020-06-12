@@ -11,7 +11,7 @@ import sys
 from .formatting import FormatInfo
 
 TEST_CASE_PATH = "test_json_/"
-URL = "http://127.0.0.1/api"
+#URL = "http://127.0.0.1/api"
 
 if os.path.exists("config.yaml"):
     with open("config.yaml") as f:
